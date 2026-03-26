@@ -1,0 +1,23 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:ListBucket"],
+      "Resource": [
+        "arn:aws:s3:::afadsismik-bookmarks-814826362372",
+        "arn:aws:s3:::afadsismik-bookmarks-814826362372/*"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["sqs:SendMessage", "sqs:SendMessageBatch"],
+      "Resource": "arn:aws:sqs:eu-west-1:814826362372:afadsismik-earthquakes"
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["dynamodb:Scan"],
+      "Resource": "arn:aws:dynamodb:eu-west-1:814826362372:table/AfadSismikSubscribers"
+    }
+  ]
+}

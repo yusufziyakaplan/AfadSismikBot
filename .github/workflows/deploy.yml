@@ -1,0 +1,39 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup .NET 8
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Build
+      run: dotnet build
+
+    - name: Install AWS Lambda Tools
+      if: github.ref == 'refs/heads/main'
+      run: dotnet tool install -g Amazon.Lambda.Tools
+
+    - name: Configure AWS Credentials
+      if: github.ref == 'refs/heads/main'
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    - name: Deploy
+      if: github.ref == 'refs/heads/main'
+      run: ~/.dotnet/tools/dotnet-lambda deploy-serverless --template template.yml --stack-name AfadSismikBot --s3-bucket afadsismik-deploy-${{ secrets.AWS_ACCOUNT_ID }} --parameter-overrides "TelegramApiToken=${{ secrets.TELEGRAM_API_TOKEN }}"

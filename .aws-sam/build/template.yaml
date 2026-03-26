@@ -1,0 +1,235 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: AFAD verilerini kullanarak deprem bildirimleri yapan Telegram botu.
+Resources:
+  AfadSismikApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      OpenApiVersion: '2.0'
+      Name: AfadSismikApi
+      StageName: prod
+  AfadSismikSubscribersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: AfadSismikSubscribers
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+      - AttributeName: chatId
+        AttributeType: N
+      KeySchema:
+      - AttributeName: chatId
+        KeyType: HASH
+  AfadSismikQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: afadsismik-earthquakes
+      VisibilityTimeout: 60
+  AfadSismikBookmarkBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName:
+        Fn::Sub: afadsismik-bookmarks-${AWS::AccountId}
+  AfadSismikPullerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: AfadSismikPullerRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+          Action: sts:AssumeRole
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+      - PolicyName: AfadSismikPullerPolicy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - s3:GetObject
+            - s3:PutObject
+            - s3:ListBucket
+            Resource:
+            - Fn::Sub: arn:aws:s3:::afadsismik-bookmarks-${AWS::AccountId}
+            - Fn::Sub: arn:aws:s3:::afadsismik-bookmarks-${AWS::AccountId}/*
+          - Effect: Allow
+            Action:
+            - sqs:SendMessage
+            - sqs:SendMessageBatch
+            Resource:
+              Fn::GetAtt:
+              - AfadSismikQueue
+              - Arn
+          - Effect: Allow
+            Action:
+            - dynamodb:Scan
+            Resource:
+              Fn::GetAtt:
+              - AfadSismikSubscribersTable
+              - Arn
+  AfadSismikNotifierRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: AfadSismikNotifierRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+          Action: sts:AssumeRole
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+      - PolicyName: AfadSismikNotifierPolicy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - sqs:ReceiveMessage
+            - sqs:DeleteMessage
+            - sqs:GetQueueAttributes
+            Resource:
+              Fn::GetAtt:
+              - AfadSismikQueue
+              - Arn
+          - Effect: Allow
+            Action:
+            - dynamodb:DeleteItem
+            Resource:
+              Fn::GetAtt:
+              - AfadSismikSubscribersTable
+              - Arn
+  AfadSismikBotRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: AfadSismikBotRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+          Action: sts:AssumeRole
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+      - PolicyName: AfadSismikBotPolicy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+            - dynamodb:GetItem
+            Resource:
+              Fn::GetAtt:
+              - AfadSismikSubscribersTable
+              - Arn
+  AfadSismikPuller:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: AfadSismikPuller
+      Handler: AfadSismikPuller::AfadSismikPuller.Function::FunctionHandler
+      Runtime: dotnet8
+      CodeUri: AfadSismikPuller
+      Description: "AFAD'dan deprem verisi \xE7eker ve abonelere iletir"
+      MemorySize: 256
+      Timeout: 300
+      Role:
+        Fn::GetAtt:
+        - AfadSismikPullerRole
+        - Arn
+      Environment:
+        Variables:
+          TELEGRAM_CHANNEL_NAME: afadsismik
+          BOOKMARK_BUCKET:
+            Fn::Sub: afadsismik-bookmarks-${AWS::AccountId}
+          DYNAMODB_TABLE_NAME: AfadSismikSubscribers
+          SQS_QUEUE_URL:
+            Ref: AfadSismikQueue
+      Events:
+        ScheduleRule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(1 minute)
+            Name: AfadSismikPullerRule
+            Enabled: true
+    Metadata:
+      SamResourceId: AfadSismikPuller
+  AfadSismikNotifier:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: AfadSismikNotifier
+      Handler: AfadSismikNotifier::AfadSismikNotifier.Function::FunctionHandler
+      Runtime: dotnet8
+      CodeUri: AfadSismikNotifier
+      Description: "SQS'ten mesajlar\u0131 al\u0131p Telegram'a g\xF6nderir"
+      MemorySize: 256
+      Timeout: 30
+      Role:
+        Fn::GetAtt:
+        - AfadSismikNotifierRole
+        - Arn
+      Environment:
+        Variables:
+          TELEGRAM_API_TOKEN:
+            Ref: TelegramApiToken
+          DYNAMODB_TABLE_NAME: AfadSismikSubscribers
+      Events:
+        SqsEvent:
+          Type: SQS
+          Properties:
+            BatchSize: 10
+            Enabled: true
+            Queue:
+              Fn::GetAtt:
+              - AfadSismikQueue
+              - Arn
+    Metadata:
+      SamResourceId: AfadSismikNotifier
+  AfadSismikBot:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: AfadSismikBot
+      Handler: AfadSismikBot::AfadSismikBot.Function::FunctionHandler
+      Runtime: dotnet8
+      CodeUri: AfadSismikBot
+      Description: Telegram bot webhook handler
+      MemorySize: 256
+      Timeout: 30
+      Role:
+        Fn::GetAtt:
+        - AfadSismikBotRole
+        - Arn
+      Environment:
+        Variables:
+          TELEGRAM_API_TOKEN:
+            Ref: TelegramApiToken
+          DYNAMODB_TABLE_NAME: AfadSismikSubscribers
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Method: POST
+            Path: /bot
+            RestApiId:
+              Ref: AfadSismikApi
+    Metadata:
+      SamResourceId: AfadSismikBot
+Parameters:
+  TelegramApiToken:
+    Type: String
+    NoEcho: true
+    Description: Telegram Bot API Token
+Outputs:
+  BotWebhookUrl:
+    Description: Telegram webhook URL (bunu BotFather'a kaydet)
+    Value:
+      Fn::Sub: https://${AfadSismikApi}.execute-api.${AWS::Region}.amazonaws.com/prod/bot
