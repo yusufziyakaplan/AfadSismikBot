@@ -182,6 +182,23 @@ curl -X POST "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook" \
   -d '{"url": "<BotWebhookUrl>"}'
 ```
 
+### Adım 7 — Bot Komut Menüsünü Ayarla
+
+1. Telegram'da [@BotFather](https://t.me/BotFather)'a git
+2. `/mybots` yaz → botunu seç
+3. **Edit Bot** → **Edit Commands**
+4. Aşağıdaki komutları yapıştır:
+
+```
+start - Botu başlat
+abone - Deprem bildirimlerine abone ol
+iptal - Aboneliği iptal et
+buyukluk - Minimum büyüklük filtresi ayarla
+konum - Konum bazlı filtre ayarla
+konumkaldir - Konum filtresini kaldır
+hakkinda - Bot hakkında bilgi
+```
+
 ✅ Kurulum tamamlandı! Bota `/start` yazarak test edebilirsin.
 
 ---
